@@ -20,42 +20,117 @@
 
 */
 
-// ruleset: chn-0
+// ruleset: fra-0
 
 // Important!
 // Isolate from global scope
 
 // Start of local scope
-(function uBOL_adjustSetTimeout() {
+(function uBOL_preventRequestAnimationFrame() {
 
 /******************************************************************************/
 
-function adjustSetTimeout(
-    needleArg = '',
-    delayArg = '',
-    boostArg = ''
+function preventRequestAnimationFrame(
+    needleRaw = ''
 ) {
-    if ( typeof needleArg !== 'string' ) { return; }
     const safe = safeSelf();
-    const reNeedle = safe.patternToRegex(needleArg);
-    let delay = delayArg !== '*' ? parseInt(delayArg, 10) : -1;
-    if ( isNaN(delay) || isFinite(delay) === false ) { delay = 1000; }
-    let boost = parseFloat(boostArg);
-    boost = isNaN(boost) === false && isFinite(boost)
-        ? Math.min(Math.max(boost, 0.001), 50)
-        : 0.05;
-    self.setTimeout = new Proxy(self.setTimeout, {
-        apply: function(target, thisArg, args) {
-            const [ a, b ] = args;
-            if (
-                (delay === -1 || b === delay) &&
-                reNeedle.test(a.toString())
-            ) {
-                args[1] = b * boost;
-            }
-            return target.apply(thisArg, args);
+    const logPrefix = safe.makeLogPrefix('prevent-requestAnimationFrame', needleRaw);
+    const needleNot = needleRaw.charAt(0) === '!';
+    const reNeedle = safe.patternToRegex(needleNot ? needleRaw.slice(1) : needleRaw);
+    proxyApplyFn('requestAnimationFrame', function(context) {
+        const { callArgs } = context;
+        const a = callArgs[0] instanceof Function
+            ? safe.String(safe.Function_toString(callArgs[0]))
+            : safe.String(callArgs[0]);
+        if ( needleRaw === '' ) {
+            safe.uboLog(logPrefix, `Called:\n${a}`);
+        } else if ( reNeedle.test(a) !== needleNot ) {
+            callArgs[0] = function(){};
+            safe.uboLog(logPrefix, `Prevented:\n${a}`);
         }
+        return context.reflect();
     });
+}
+
+function proxyApplyFn(
+    target = '',
+    handler = ''
+) {
+    let context = globalThis;
+    let prop = target;
+    for (;;) {
+        const pos = prop.indexOf('.');
+        if ( pos === -1 ) { break; }
+        context = context[prop.slice(0, pos)];
+        if ( context instanceof Object === false ) { return; }
+        prop = prop.slice(pos+1);
+    }
+    const fn = context[prop];
+    if ( typeof fn !== 'function' ) { return; }
+    if ( proxyApplyFn.CtorContext === undefined ) {
+        proxyApplyFn.ctorContexts = [];
+        proxyApplyFn.CtorContext = class {
+            constructor(...args) {
+                this.init(...args);
+            }
+            init(callFn, callArgs) {
+                this.callFn = callFn;
+                this.callArgs = callArgs;
+                return this;
+            }
+            reflect() {
+                const r = Reflect.construct(this.callFn, this.callArgs);
+                this.callFn = this.callArgs = this.private = undefined;
+                proxyApplyFn.ctorContexts.push(this);
+                return r;
+            }
+            static factory(...args) {
+                return proxyApplyFn.ctorContexts.length !== 0
+                    ? proxyApplyFn.ctorContexts.pop().init(...args)
+                    : new proxyApplyFn.CtorContext(...args);
+            }
+        };
+        proxyApplyFn.applyContexts = [];
+        proxyApplyFn.ApplyContext = class {
+            constructor(...args) {
+                this.init(...args);
+            }
+            init(callFn, thisArg, callArgs) {
+                this.callFn = callFn;
+                this.thisArg = thisArg;
+                this.callArgs = callArgs;
+                return this;
+            }
+            reflect() {
+                const r = Reflect.apply(this.callFn, this.thisArg, this.callArgs);
+                this.callFn = this.thisArg = this.callArgs = this.private = undefined;
+                proxyApplyFn.applyContexts.push(this);
+                return r;
+            }
+            static factory(...args) {
+                return proxyApplyFn.applyContexts.length !== 0
+                    ? proxyApplyFn.applyContexts.pop().init(...args)
+                    : new proxyApplyFn.ApplyContext(...args);
+            }
+        };
+    }
+    const fnStr = fn.toString();
+    const toString = (function toString() { return fnStr; }).bind(null);
+    const proxyDetails = {
+        apply(target, thisArg, args) {
+            return handler(proxyApplyFn.ApplyContext.factory(target, thisArg, args));
+        },
+        get(target, prop) {
+            if ( prop === 'toString' ) { return toString; }
+            return Reflect.get(target, prop);
+        },
+    };
+    if ( fn.prototype?.constructor === fn ) {
+        proxyDetails.construct = function(target, args) {
+            return handler(proxyApplyFn.CtorContext.factory(target, args));
+        };
+    }
+    context[prop] = new Proxy(fn, proxyDetails);
 }
 
 function safeSelf() {
@@ -251,8 +326,8 @@ function safeSelf() {
 /******************************************************************************/
 
 const scriptletGlobals = {}; // eslint-disable-line
-const argsList = [["adCountDown","","0.02"],["video-ad-timeout","*","0.02"],["","","0.02"],["CloseAd","","0.02"]];
-const hostnamesMap = new Map([["51zxw.net",0],["iwatchme2u.com",1],["youku.com",2],["zhenbuka3.com",3],["bukaivip.com",3]]);
+const argsList = [["Date.now"]];
+const hostnamesMap = new Map([["cookomix.com",0]]);
 const exceptionsMap = new Map([]);
 const hasEntities = false;
 const hasAncestors = false;
@@ -320,7 +395,7 @@ if ( hasAncestors ) {
 // Apply scriplets
 for ( const i of todoIndices ) {
     if ( tonotdoIndices.has(i) ) { continue; }
-    try { adjustSetTimeout(...argsList[i]); }
+    try { preventRequestAnimationFrame(...argsList[i]); }
     catch { }
 }
 
